@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Opsional: Bikin transisi background smooth saat ganti tema */
+body {
+  @apply transition-colors duration-300;
+}
