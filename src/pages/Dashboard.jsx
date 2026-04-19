@@ -1,77 +1,86 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../config/supabaseClient";
-import { toast } from "sonner";
+import Sidebar from "../components/Sidebar";
 import {
-  Map,
-  Calendar,
   MapPin,
+  Calendar,
   Plus,
   Trash2,
   Loader2,
   ArrowRight,
+  Menu,
+  Receipt,
+  KeyRound,
+  Package,
+  Pencil,
+  Save,
+  X,
 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { toast } from "sonner";
 
 export default function Dashboard() {
-  const navigate = useNavigate();
-  const [session, setSession] = useState(null);
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState("all");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Form State
+  // State Form Tambah Trip
   const [title, setTitle] = useState("");
   const [destination, setDestination] = useState("");
   const [startDate, setStartDate] = useState("");
 
-  // 1. Cek sesi & Ambil Data saat komponen dimuat
+  // State Form Edit Trip
+  const [editingTripId, setEditingTripId] = useState(null);
+  const [editTripTitle, setEditTripTitle] = useState("");
+  const [editTripDest, setEditTripDest] = useState("");
+  const [editTripDate, setEditTripDate] = useState("");
+
   useEffect(() => {
-    checkSessionAndFetchData();
+    fetchTripsWithDetails();
   }, []);
 
-  const checkSessionAndFetchData = async () => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session) {
-      toast.error("Kamu harus login terlebih dahulu!");
-      navigate("/login");
-      return;
-    }
-
-    setSession(session);
-    fetchTrips(session.user.id);
-  };
-
-  // 2. Fungsi READ: Ambil data dari Supabase
-  const fetchTrips = async (userId) => {
+  // Ambil data Trip + Relasi ke Trip Notes
+  const fetchTripsWithDetails = async () => {
+    setLoading(true);
     try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) return;
+
       const { data, error } = await supabase
         .from("trips")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
+        .select(
+          `
+          *,
+          trip_notes (id, is_completed, price, quantity)
+        `,
+        )
+        .eq("user_id", session.user.id)
+        .order("start_date", { ascending: true });
 
       if (error) throw error;
       setTrips(data || []);
     } catch (error) {
-      toast.error("Gagal mengambil data perjalanan: " + error.message);
+      toast.error("Gagal memuat data: " + error.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // 3. Fungsi CREATE: Tambah ekspedisi baru
+  // --- FUNGSI CRUD TRIP ---
   const handleAddTrip = async (e) => {
     e.preventDefault();
-    if (!title || !destination || !startDate) {
-      toast.warning("Semua kolom harus diisi!");
-      return;
-    }
+    if (!title || !destination || !startDate)
+      return toast.warning("Lengkapi data rencana dulu!");
 
     setIsSubmitting(true);
     try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const { error } = await supabase.from("trips").insert([
         {
           user_id: session.user.id,
@@ -80,14 +89,13 @@ export default function Dashboard() {
           start_date: startDate,
         },
       ]);
-
       if (error) throw error;
 
-      toast.success("Rencana ekspedisi berhasil ditambahkan!");
+      toast.success("Rencana pendakian dibuat!");
       setTitle("");
       setDestination("");
       setStartDate("");
-      fetchTrips(session.user.id); // Refresh data
+      fetchTripsWithDetails();
     } catch (error) {
       toast.error(error.message);
     } finally {
@@ -95,152 +103,359 @@ export default function Dashboard() {
     }
   };
 
-  // 4. Fungsi DELETE: Hapus ekspedisi
-  const handleDelete = async (id) => {
-    if (!window.confirm("Yakin ingin membatalkan rencana ini?")) return;
+  const handleUpdateTrip = async (e) => {
+    e.preventDefault();
+    if (!editTripTitle) return toast.warning("Judul tidak boleh kosong!");
 
     try {
-      const { error } = await supabase.from("trips").delete().eq("id", id);
+      const { error } = await supabase
+        .from("trips")
+        .update({
+          title: editTripTitle,
+          destination: editTripDest,
+          start_date: editTripDate,
+        })
+        .eq("id", editingTripId);
 
       if (error) throw error;
-      toast.success("Rencana ekspedisi dibatalkan.");
-      fetchTrips(session.user.id); // Refresh data
+      toast.success("Rencana berhasil diperbarui!");
+      setEditingTripId(null);
+      fetchTripsWithDetails();
     } catch (error) {
       toast.error(error.message);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-[calc(100vh-4rem)] flex justify-center items-center">
-        <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
-      </div>
-    );
-  }
+  const handleDeleteTrip = async (id) => {
+    if (
+      !window.confirm(
+        "Hapus rencana ini? Semua data logistik di dalamnya akan hilang.",
+      )
+    )
+      return;
+    try {
+      const { error } = await supabase.from("trips").delete().eq("id", id);
+      if (error) throw error;
+      toast.success("Rencana dihapus");
+      fetchTripsWithDetails();
+    } catch (error) {
+      toast.error(error.message);
+    }
+  };
+
+  // --- LOGIKA FILTER & FORMATTING ---
+  const today = new Date().toISOString().split("T")[0];
+
+  const processedTrips = trips.map((trip) => {
+    const totalItems = trip.trip_notes?.length || 0;
+    const completedItems =
+      trip.trip_notes?.filter((n) => n.is_completed).length || 0;
+    const progress =
+      totalItems === 0 ? 0 : Math.round((completedItems / totalItems) * 100);
+    const totalBudget =
+      trip.trip_notes?.reduce((sum, item) => sum + (item.price || 0), 0) || 0;
+
+    return {
+      ...trip,
+      progress,
+      totalBudget,
+      isReady: totalItems > 0 && progress === 100,
+      isPast: trip.start_date < today,
+      totalItems,
+      completedItems,
+    };
+  });
+
+  const filteredTrips = processedTrips.filter((trip) => {
+    if (activeFilter === "completed") return trip.isReady || trip.isPast;
+    if (activeFilter === "ongoing") return !trip.isReady && !trip.isPast;
+    return true;
+  });
+
+  const formatRupiah = (angka) => {
+    return new Intl.NumberFormat("id-ID", {
+      style: "currency",
+      currency: "IDR",
+      minimumFractionDigits: 0,
+    }).format(angka);
+  };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header & Form Tambah Trip */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-6 mb-8">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
-          <Map className="h-6 w-6 text-blue-600" /> Rencana Ekspedisi
-        </h1>
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex">
+      <Sidebar
+        activeFilter={activeFilter}
+        setActiveFilter={setActiveFilter}
+        isOpen={isSidebarOpen}
+        setIsOpen={setIsSidebarOpen}
+      />
 
-        <form
-          onSubmit={handleAddTrip}
-          className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end"
-        >
-          <div className="md:col-span-1">
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Nama Rencana
-            </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Cth: Pendakian Rinjani"
-              className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-            />
+      <main className="flex-1 lg:ml-64 p-4 md:p-8 transition-all">
+        {/* Mobile Header */}
+        <div className="lg:hidden flex items-center justify-between mb-8 bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
+          <div className="flex items-center gap-2">
+            <Package size={20} className="text-blue-600" />
+            <span className="font-bold dark:text-white">Travel Notes</span>
           </div>
-          <div className="md:col-span-1">
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Gunung/Tujuan
-            </label>
-            <input
-              type="text"
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              placeholder="Cth: Mt. Rinjani"
-              className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div className="md:col-span-1">
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Tanggal Mulai
-            </label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div className="md:col-span-1">
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition flex justify-center items-center gap-2 disabled:opacity-70"
-            >
-              {isSubmitting ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <Plus className="h-5 w-5" />
-              )}
-              Buat Rencana
-            </button>
-          </div>
-        </form>
-      </div>
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
+          >
+            <Menu className="dark:text-white" />
+          </button>
+        </div>
 
-      {/* Grid Daftar Trip */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {trips.length === 0 ? (
-          <div className="col-span-full text-center py-12 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700">
-            <MapPin className="h-12 w-12 text-slate-400 mx-auto mb-3" />
-            <p className="text-slate-500 dark:text-slate-400 text-lg">
-              Belum ada rencana pendakian. Yuk, buat sekarang!
-            </p>
+        {activeFilter === "password" ? (
+          /* SECTION: UBAH PASSWORD */
+          <div className="max-w-md mx-auto mt-10">
+            <div className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-slate-700">
+              <div className="bg-blue-50 dark:bg-blue-900/20 w-16 h-16 rounded-2xl flex items-center justify-center mb-6">
+                <KeyRound size={32} className="text-blue-600" />
+              </div>
+              <h2 className="text-2xl font-bold mb-2 dark:text-white">
+                Keamanan Akun
+              </h2>
+              <p className="text-slate-500 mb-8 text-sm">
+                Ganti password Anda secara berkala untuk menjaga keamanan data.
+              </p>
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const newPass = e.target.newPassword.value;
+                  if (newPass.length < 6)
+                    return toast.error("Minimal 6 karakter!");
+                  const { error } = await supabase.auth.updateUser({
+                    password: newPass,
+                  });
+                  if (error) toast.error(error.message);
+                  else {
+                    toast.success("Password diperbarui!");
+                    e.target.reset();
+                  }
+                }}
+                className="space-y-4"
+              >
+                <input
+                  name="newPassword"
+                  type="password"
+                  placeholder="Password Baru"
+                  className="w-full p-4 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 border border-transparent"
+                  required
+                />
+                <button
+                  type="submit"
+                  className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 transition shadow-lg shadow-blue-500/20"
+                >
+                  Update Password
+                </button>
+              </form>
+            </div>
           </div>
         ) : (
-          trips.map((trip) => (
-            <div
-              key={trip.id}
-              className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 hover:shadow-md transition group relative overflow-hidden"
-            >
-              <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+          /* SECTION: DASHBOARD LIST */
+          <>
+            <header className="mb-10">
+              <h1 className="text-3xl font-black text-slate-900 dark:text-white mb-2">
+                {activeFilter === "all"
+                  ? "Dashboard Utama"
+                  : activeFilter === "completed"
+                    ? "Jadwal Selesai"
+                    : "Jadwal Mendatang"}
+              </h1>
+              <p className="text-slate-500 font-medium">
+                Total {filteredTrips.length} ekspedisi ditemukan.
+              </p>
+            </header>
 
-              <div className="flex justify-between items-start mb-4">
-                <h3 className="font-bold text-xl text-slate-900 dark:text-white line-clamp-1">
-                  {trip.title}
+            {activeFilter !== "completed" && (
+              <div className="bg-white dark:bg-slate-800 p-6 rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-700 mb-10">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <Plus size={14} /> Buat Ekspedisi Baru
                 </h3>
-                <button
-                  onClick={() => handleDelete(trip.id)}
-                  className="text-slate-400 hover:text-red-500 p-1 rounded transition"
-                  title="Hapus Rencana"
+                <form
+                  onSubmit={handleAddTrip}
+                  className="grid grid-cols-1 md:grid-cols-4 gap-4"
                 >
-                  <Trash2 className="h-5 w-5" />
-                </button>
+                  <input
+                    type="text"
+                    placeholder="Nama Rencana"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="bg-slate-50 dark:bg-slate-700 dark:text-white p-4 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Tujuan"
+                    value={destination}
+                    onChange={(e) => setDestination(e.target.value)}
+                    className="bg-slate-50 dark:bg-slate-700 dark:text-white p-4 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="bg-slate-50 dark:bg-slate-700 dark:text-white p-4 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    disabled={isSubmitting}
+                    className="bg-blue-600 text-white rounded-2xl font-bold hover:bg-blue-700 transition shadow-lg shadow-blue-500/20"
+                  >
+                    {isSubmitting ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      "Tambah"
+                    )}
+                  </button>
+                </form>
               </div>
+            )}
 
-              <div className="space-y-2 mb-6">
-                <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
-                  <MapPin className="h-4 w-4 text-teal-500" />
-                  <span className="text-sm">{trip.destination}</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {loading ? (
+                <div className="col-span-full py-20 flex justify-center">
+                  <Loader2 className="animate-spin text-blue-600" size={40} />
                 </div>
-                <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
-                  <Calendar className="h-4 w-4 text-amber-500" />
-                  <span className="text-sm">
-                    {new Date(trip.start_date).toLocaleDateString("id-ID", {
-                      weekday: "long",
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}
-                  </span>
+              ) : filteredTrips.length === 0 ? (
+                <div className="col-span-full py-20 text-center bg-white dark:bg-slate-800 rounded-[2.5rem] border-2 border-dashed border-slate-200 dark:border-slate-700">
+                  <p className="text-slate-400">Belum ada data perjalanan.</p>
                 </div>
-              </div>
+              ) : (
+                filteredTrips.map((trip) => (
+                  <div
+                    key={trip.id}
+                    className="bg-white dark:bg-slate-800 rounded-[2.5rem] p-7 shadow-sm border border-slate-100 dark:border-slate-700 group relative"
+                  >
+                    {editingTripId === trip.id ? (
+                      /* FORM EDIT CARD */
+                      <form onSubmit={handleUpdateTrip} className="space-y-4">
+                        <div className="flex justify-between items-center mb-2">
+                          <h3 className="font-bold text-blue-600 text-sm">
+                            Mode Edit Rencana
+                          </h3>
+                          <button
+                            type="button"
+                            onClick={() => setEditingTripId(null)}
+                          >
+                            <X size={18} className="text-slate-400" />
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          value={editTripTitle}
+                          onChange={(e) => setEditTripTitle(e.target.value)}
+                          className="w-full p-3 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-xl outline-none border border-blue-500/30"
+                          placeholder="Judul..."
+                        />
+                        <input
+                          type="text"
+                          value={editTripDest}
+                          onChange={(e) => setEditTripDest(e.target.value)}
+                          className="w-full p-3 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-xl outline-none border border-blue-500/30"
+                          placeholder="Tujuan..."
+                        />
+                        <input
+                          type="date"
+                          value={editTripDate}
+                          onChange={(e) => setEditTripDate(e.target.value)}
+                          className="w-full p-3 bg-slate-50 dark:bg-slate-700 dark:text-white rounded-xl outline-none border border-blue-500/30"
+                        />
+                        <button
+                          type="submit"
+                          className="w-full bg-green-500 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 mt-2 shadow-lg shadow-green-500/20"
+                        >
+                          <Save size={18} /> Simpan
+                        </button>
+                      </form>
+                    ) : (
+                      /* TAMPILAN NORMAL CARD */
+                      <>
+                        <div className="flex justify-between items-start mb-6">
+                          <span
+                            className={`text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full ${trip.isReady ? "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400" : "bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400"}`}
+                          >
+                            {trip.isReady ? "Ready to Go" : "Preparing"}
+                          </span>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => {
+                                setEditingTripId(trip.id);
+                                setEditTripTitle(trip.title);
+                                setEditTripDest(trip.destination);
+                                setEditTripDate(trip.start_date);
+                              }}
+                              className="text-slate-300 hover:text-blue-500 transition-colors p-1"
+                            >
+                              <Pencil size={18} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteTrip(trip.id)}
+                              className="text-slate-300 hover:text-red-500 transition-colors p-1"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        </div>
 
-              {/* Nanti tombol ini kita arahkan ke halaman Detail untuk input barang logistik */}
-              <Link
-                to={`/dashboard/${trip.id}`}
-                className="w-full flex items-center justify-center gap-2 bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 py-2 rounded-lg text-sm font-medium transition"
-              >
-                Cek Logistik <ArrowRight className="h-4 w-4" />
-              </Link>
+                        <h3 className="text-2xl font-bold dark:text-white mb-2 line-clamp-1">
+                          {trip.title}
+                        </h3>
+                        <div className="flex flex-col gap-2 text-slate-500 dark:text-slate-400 text-sm mb-6 font-medium">
+                          <div className="flex items-center gap-2">
+                            <MapPin size={14} className="text-blue-500" />{" "}
+                            {trip.destination}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Calendar size={14} className="text-blue-500" />{" "}
+                            {trip.start_date}
+                          </div>
+                        </div>
+
+                        <div className="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-2xl mb-6 flex items-center gap-4 border border-slate-100 dark:border-slate-600">
+                          <div className="bg-white dark:bg-slate-600 p-2 rounded-xl shadow-sm text-green-500">
+                            <Receipt size={20} />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                              Budget Logistik
+                            </p>
+                            <p className="text-sm font-black dark:text-white">
+                              {formatRupiah(trip.totalBudget)}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3 mb-8">
+                          <div className="flex justify-between items-end">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                              Kesiapan Packing
+                            </span>
+                            <span className="text-sm font-black text-blue-600">
+                              {trip.progress}%
+                            </span>
+                          </div>
+                          <div className="h-3 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full transition-all duration-1000 ${trip.progress === 100 ? "bg-green-500" : "bg-blue-600"}`}
+                              style={{ width: `${trip.progress}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        <Link
+                          to={`/dashboard/${trip.id}`}
+                          className="flex items-center justify-center gap-2 w-full py-4 bg-slate-900 dark:bg-blue-600 text-white rounded-2xl font-bold hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-slate-200 dark:shadow-blue-900/20"
+                        >
+                          Kelola Rencana <ArrowRight size={18} />
+                        </Link>
+                      </>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
-          ))
+          </>
         )}
-      </div>
+      </main>
     </div>
   );
 }

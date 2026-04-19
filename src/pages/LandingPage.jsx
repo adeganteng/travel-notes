@@ -142,7 +142,7 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-[600px]">
             <div className="group relative overflow-hidden rounded-2xl md:col-span-2">
               <img
-                src="https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&q=80&w=1000"
+                src="https://images.unsplash.com/photo-1654046920188-6e7ee051d7a4?auto=format&fit=crop&q=80&w=1000"
                 className="w-full h-full object-cover group-hover:scale-110 transition duration-700"
                 alt="Lake"
               />
@@ -155,22 +155,22 @@ export default function LandingPage() {
             <div className="space-y-6">
               <div className="group relative overflow-hidden rounded-2xl h-[288px]">
                 <img
-                  src="https://images.unsplash.com/photo-1464270131427-432220087c70?auto=format&fit=crop&q=80&w=1000"
+                  src="https://images.unsplash.com/photo-1612144613550-171966fab8c5?auto=format&fit=crop&q=80&w=1000"
                   className="w-full h-full object-cover group-hover:scale-110 transition duration-700"
                   alt="Mountain"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-6">
-                  <h3 className="text-xl font-bold">Puncak Mahameru</h3>
+                  <h3 className="text-xl font-bold">Mahameru</h3>
                 </div>
               </div>
               <div className="group relative overflow-hidden rounded-2xl h-[288px]">
                 <img
-                  src="https://images.unsplash.com/photo-1589182373726-e4f658ab50f0?auto=format&fit=crop&q=80&w=1000"
+                  src="https://images.unsplash.com/photo-1703081350237-ef57fafb6f6a?auto=format&fit=crop&q=80&w=1000"
                   className="w-full h-full object-cover group-hover:scale-110 transition duration-700"
                   alt="Hiking"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-6">
-                  <h3 className="text-xl font-bold">Lembah Prau</h3>
+                  <h3 className="text-xl font-bold">Banda Neira</h3>
                 </div>
               </div>
             </div>
